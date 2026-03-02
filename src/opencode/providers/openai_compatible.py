@@ -1,0 +1,147 @@
+"""OpenAI-compatible provider for llama.cpp, vLLM, Ollama, OpenAI, etc."""
+
+from __future__ import annotations
+
+import json
+from typing import Any, AsyncIterator
+
+from openai import AsyncOpenAI
+
+from opencode.core.message import Message, Role, ToolCall, ToolResult, Usage
+from opencode.providers.base import LLMProvider, StreamChunk
+from opencode.tools.base import ToolDefinition
+
+
+class OpenAICompatibleProvider(LLMProvider):
+    """
+    Provider for any OpenAI-compatible API endpoint.
+    Works with: llama.cpp server, vLLM, Ollama, OpenAI, Together, Groq, etc.
+    """
+
+    def __init__(
+        self,
+        model: str = "default",
+        base_url: str = "http://localhost:8080/v1",
+        api_key: str = "not-needed",
+    ) -> None:
+        self.name = "openai-compatible"
+        self.model = model
+        self._client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+
+    def format_tools(self, tools: list[ToolDefinition]) -> list[dict[str, Any]]:
+        """Convert to OpenAI function calling format."""
+        result = []
+        for tool in tools:
+            result.append({
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.to_json_schema(),
+                },
+            })
+        return result
+
+    def format_messages(
+        self, messages: list[Message], system_prompt: str
+    ) -> list[dict[str, Any]]:
+        """Convert canonical messages to OpenAI chat format."""
+        formatted: list[dict[str, Any]] = []
+
+        if system_prompt:
+            formatted.append({"role": "system", "content": system_prompt})
+
+        for msg in messages:
+            if msg.role == Role.USER:
+                formatted.append({"role": "user", "content": msg.content})
+
+            elif msg.role == Role.ASSISTANT:
+                entry: dict[str, Any] = {"role": "assistant"}
+                if msg.content:
+                    entry["content"] = msg.content
+                if msg.tool_calls:
+                    entry["tool_calls"] = [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.name,
+                                "arguments": json.dumps(tc.arguments),
+                            },
+                        }
+                        for tc in msg.tool_calls
+                    ]
+                    if not msg.content:
+                        entry["content"] = None
+                formatted.append(entry)
+
+            elif msg.role == Role.TOOL:
+                for tr in msg.tool_results:
+                    formatted.append({
+                        "role": "tool",
+                        "tool_call_id": tr.tool_call_id,
+                        "content": tr.content,
+                    })
+
+        return formatted
+
+    async def stream(
+        self,
+        messages: list[Message],
+        system_prompt: str,
+        tools: list[ToolDefinition],
+        *,
+        temperature: float = 0.0,
+        max_tokens: int = 4096,
+    ) -> AsyncIterator[StreamChunk]:
+        """Stream a response from the OpenAI-compatible endpoint."""
+        formatted_messages = self.format_messages(messages, system_prompt)
+
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": formatted_messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+
+        if tools:
+            formatted_tools = self.format_tools(tools)
+            kwargs["tools"] = formatted_tools
+
+        response = await self._client.chat.completions.create(**kwargs)
+
+        async for chunk in response:
+            if not chunk.choices and chunk.usage:
+                # Final usage-only chunk
+                yield StreamChunk(
+                    usage=Usage(
+                        input_tokens=chunk.usage.prompt_tokens or 0,
+                        output_tokens=chunk.usage.completion_tokens or 0,
+                        total_tokens=chunk.usage.total_tokens or 0,
+                    )
+                )
+                continue
+
+            if not chunk.choices:
+                continue
+
+            choice = chunk.choices[0]
+            delta = choice.delta
+
+            sc = StreamChunk(finish_reason=choice.finish_reason)
+
+            if delta.content:
+                sc.text = delta.content
+
+            if delta.tool_calls:
+                tc_delta = delta.tool_calls[0]
+                if tc_delta.id:
+                    sc.tool_call_id = tc_delta.id
+                if tc_delta.function and tc_delta.function.name:
+                    sc.tool_call_name = tc_delta.function.name
+                if tc_delta.function and tc_delta.function.arguments:
+                    sc.tool_call_arguments_delta = tc_delta.function.arguments
+
+            yield sc

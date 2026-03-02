@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from typing import Any, AsyncIterator
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, APIConnectionError, APITimeoutError, RateLimitError
 
 from opencode.core.message import Message, Role, ToolCall, ToolResult, Usage
 from opencode.providers.base import LLMProvider, StreamChunk
 from opencode.tools.base import ToolDefinition
+
+logger = logging.getLogger(__name__)
+
+RETRYABLE_ERRORS = (APIConnectionError, APITimeoutError, RateLimitError)
+MAX_RETRIES = 3
+RETRY_BACKOFF = [1, 2, 4]  # seconds
 
 
 class OpenAICompatibleProvider(LLMProvider):
@@ -110,7 +118,7 @@ class OpenAICompatibleProvider(LLMProvider):
             formatted_tools = self.format_tools(tools)
             kwargs["tools"] = formatted_tools
 
-        response = await self._client.chat.completions.create(**kwargs)
+        response = await self._create_with_retry(**kwargs)
 
         async for chunk in response:
             if not chunk.choices and chunk.usage:
@@ -145,3 +153,16 @@ class OpenAICompatibleProvider(LLMProvider):
                     sc.tool_call_arguments_delta = tc_delta.function.arguments
 
             yield sc
+
+    async def _create_with_retry(self, **kwargs: Any) -> Any:
+        """Call chat.completions.create with retries on transient errors."""
+        for attempt in range(MAX_RETRIES):
+            try:
+                return await self._client.chat.completions.create(**kwargs)
+            except RETRYABLE_ERRORS as e:
+                if attempt == MAX_RETRIES - 1:
+                    raise
+                wait = RETRY_BACKOFF[attempt]
+                logger.warning(f"API error (attempt {attempt + 1}/{MAX_RETRIES}): {e}. Retrying in {wait}s...")
+                await asyncio.sleep(wait)
+        raise RuntimeError("Unreachable")

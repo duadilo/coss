@@ -5,10 +5,13 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
+from opencode.core.context import ContextManager
 from opencode.core.conversation import Conversation
 from opencode.core.cost import CostTracker
 from opencode.core.message import Message, Role, ToolCall, ToolResult, Usage
 from opencode.core.permissions import PermissionDecision, PermissionManager
+from opencode.core.plan_mode import PlanMode
+from opencode.hooks.manager import HookManager
 from opencode.providers.base import LLMProvider, StreamChunk
 from opencode.tools.base import ToolDefinition
 from opencode.tools.registry import ToolRegistry
@@ -28,6 +31,9 @@ class AgentLoop:
         permission_manager: PermissionManager,
         cost_tracker: CostTracker,
         conversation: Conversation,
+        plan_mode: PlanMode | None = None,
+        context_manager: ContextManager | None = None,
+        hook_manager: HookManager | None = None,
         max_iterations: int = 50,
     ) -> None:
         self.provider = provider
@@ -35,6 +41,9 @@ class AgentLoop:
         self.permission_manager = permission_manager
         self.cost_tracker = cost_tracker
         self.conversation = conversation
+        self.plan_mode = plan_mode or PlanMode()
+        self.context_manager = context_manager
+        self.hook_manager = hook_manager or HookManager()
         self.max_iterations = max_iterations
 
     async def run(
@@ -50,8 +59,12 @@ class AgentLoop:
         self.conversation.add_user_message(user_message)
 
         for _iteration in range(self.max_iterations):
-            # Get available tools
-            tool_defs = self.tool_registry.list_definitions()
+            # Check if context window needs compaction
+            if self.context_manager and self.context_manager.should_compact(self.conversation):
+                await self.context_manager.compact(self.conversation, self.provider)
+
+            # Get available tools, filtered by plan mode
+            tool_defs = self._get_available_tools()
 
             # Stream LLM response
             assistant_msg = await self._stream_response(
@@ -84,6 +97,13 @@ class AgentLoop:
             role=Role.ASSISTANT,
             content="[Reached maximum iteration limit. Please continue with a new message.]",
         )
+
+    def _get_available_tools(self) -> list[ToolDefinition]:
+        """Get tool definitions, filtered by plan mode if active."""
+        all_tools = self.tool_registry.list_definitions()
+        if self.plan_mode.is_active:
+            return [t for t in all_tools if t.is_read_only]
+        return all_tools
 
     async def _stream_response(
         self,
@@ -201,6 +221,21 @@ class AgentLoop:
                     result_messages.append(Message(role=Role.TOOL, tool_results=[tr]))
                     continue
 
+            # Run pre-hooks
+            pre_results = await self.hook_manager.run_pre_hooks(tc)
+            block_msg = self.hook_manager.has_blocking_failure(pre_results)
+            if block_msg:
+                tr = ToolResult(
+                    tool_call_id=tc.id,
+                    name=tc.name,
+                    content=block_msg,
+                    is_error=True,
+                )
+                result_messages.append(Message(role=Role.TOOL, tool_results=[tr]))
+                if on_tool_end:
+                    on_tool_end(tc, tr)
+                continue
+
             if on_tool_start:
                 on_tool_start(tc, tool_def)
 
@@ -229,6 +264,9 @@ class AgentLoop:
                     )
 
             result_messages.append(Message(role=Role.TOOL, tool_results=[tr]))
+
+            # Run post-hooks
+            await self.hook_manager.run_post_hooks(tc)
 
             if on_tool_end:
                 on_tool_end(tc, tr)

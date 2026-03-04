@@ -51,7 +51,7 @@ class REPL:
         self._console.print(f"[dim]Working directory: {os.getcwd()}[/dim]")
         self._console.print("[dim]Type /help for commands, /exit to quit.[/dim]\n")
 
-    def _handle_permission_request(
+    async def _handle_permission_request(
         self, tool_call: ToolCall, tool_def: ToolDefinition | None
     ) -> bool:
         """Prompt user to allow/deny a tool call."""
@@ -66,7 +66,7 @@ class REPL:
             self._console.print(f"  [dim]{key}:[/dim] {display_val}")
 
         try:
-            response = self._session.prompt(
+            response = await self._session.prompt_async(
                 HTML("<b>Allow?</b> [<green>y</green>]es / [<red>n</red>]o / [<cyan>a</cyan>]lways: "),
             )
         except (EOFError, KeyboardInterrupt):
@@ -88,7 +88,7 @@ class REPL:
 
         while True:
             try:
-                user_input = self._session.prompt(
+                user_input = await self._session.prompt_async(
                     HTML("<b><cyan>you></cyan></b> "),
                 )
 

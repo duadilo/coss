@@ -2,6 +2,20 @@
 
 Open-source agentic coding CLI with multi-provider LLM support. Built in Python.
 
+## Installation
+
+### Install uv
+
+**macOS / Linux:**
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Windows:**
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
 ## Quick Start
 
 ```bash
@@ -34,6 +48,9 @@ uv run opencode --model google:gemini-2.5-flash
 
 # Ollama (auto-detects localhost:11434)
 uv run opencode --model ollama:llama3.1
+
+# Ollama with explicit base URL
+uv run opencode --model gpt-oss:120b --base-url http://localhost:11434/v1
 
 # Any OpenAI-compatible server
 uv run opencode --model my-model --base-url http://localhost:8080/v1

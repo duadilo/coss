@@ -19,9 +19,11 @@ class AnthropicProvider(LLMProvider):
         self,
         model: str = "claude-sonnet-4-20250514",
         api_key: str | None = None,
+        extra_params: dict[str, Any] | None = None,
     ) -> None:
         self.name = "anthropic"
         self.model = model
+        self.extra_params = extra_params or {}
         self._client = anthropic.AsyncAnthropic(api_key=api_key)
 
     def format_tools(self, tools: list[ToolDefinition]) -> list[dict[str, Any]]:
@@ -114,6 +116,17 @@ class AnthropicProvider(LLMProvider):
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+
+        # Apply extra params (temperature/max_tokens override defaults, others passed through)
+        if self.extra_params:
+            if "temperature" in self.extra_params:
+                kwargs["temperature"] = self.extra_params["temperature"]
+            if "max_tokens" in self.extra_params:
+                kwargs["max_tokens"] = self.extra_params["max_tokens"]
+            if "top_p" in self.extra_params:
+                kwargs["top_p"] = self.extra_params["top_p"]
+            if "top_k" in self.extra_params:
+                kwargs["top_k"] = self.extra_params["top_k"]
 
         if tools:
             kwargs["tools"] = self.format_tools(tools)

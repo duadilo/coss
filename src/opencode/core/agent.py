@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from opencode.core.context import ContextManager
 from opencode.core.conversation import Conversation
@@ -15,6 +15,10 @@ from opencode.hooks.manager import HookManager
 from opencode.providers.base import LLMProvider, StreamChunk
 from opencode.tools.base import ToolDefinition
 from opencode.tools.registry import ToolRegistry
+
+
+class AgentAbortError(Exception):
+    """Raised when the user aborts the agent run from a permission prompt."""
 
 
 class AgentLoop:
@@ -53,7 +57,7 @@ class AgentLoop:
         on_stream_chunk: Callable[[StreamChunk], None] | None = None,
         on_tool_start: Callable[[ToolCall, ToolDefinition | None], None] | None = None,
         on_tool_end: Callable[[ToolCall, ToolResult], None] | None = None,
-        on_permission_request: Callable[[ToolCall, ToolDefinition | None], bool] | None = None,
+        on_permission_request: Callable[[ToolCall, ToolDefinition | None], Awaitable[bool]] | None = None,
     ) -> Message:
         """Execute the agent loop for a single user turn."""
         self.conversation.add_user_message(user_message)
@@ -181,7 +185,7 @@ class AgentLoop:
         *,
         on_tool_start: Callable[[ToolCall, ToolDefinition | None], None] | None,
         on_tool_end: Callable[[ToolCall, ToolResult], None] | None,
-        on_permission_request: Callable[[ToolCall, ToolDefinition | None], bool] | None,
+        on_permission_request: Callable[[ToolCall, ToolDefinition | None], Awaitable[bool]] | None,
     ) -> list[Message]:
         """Execute tool calls and return tool result messages."""
         result_messages: list[Message] = []
@@ -195,7 +199,7 @@ class AgentLoop:
                 decision = self.permission_manager.check(tc, tool_def)
                 if decision == PermissionDecision.PROMPT:
                     if on_permission_request:
-                        allowed = on_permission_request(tc, tool_def)
+                        allowed = await on_permission_request(tc, tool_def)
                         if not allowed:
                             tr = ToolResult(
                                 tool_call_id=tc.id,

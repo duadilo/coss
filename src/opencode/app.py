@@ -63,6 +63,7 @@ class Application:
         base_url: str | None = None,
         api_key: str | None = None,
         plan: bool = False,
+        extra_params: dict[str, Any] | None = None,
     ) -> Application:
         cwd = os.getcwd()
 
@@ -75,6 +76,8 @@ class Application:
             provider_overrides["base_url"] = base_url
         if api_key:
             provider_overrides["api_key"] = api_key
+        if extra_params:
+            provider_overrides["extra_params"] = extra_params
         if provider_overrides:
             cli_overrides["provider"] = provider_overrides
 
@@ -85,6 +88,7 @@ class Application:
             settings.provider.model,
             api_key=settings.provider.api_key,
             base_url=settings.provider.base_url,
+            extra_params=settings.provider.extra_params,
         )
 
         # Tools
@@ -99,14 +103,19 @@ class Application:
         tool_registry.register(WebSearchTool())
 
         # Core components
-        permission_manager = PermissionManager()
+        permission_manager = PermissionManager(
+            auto_allow_reads=settings.permissions.auto_allow_read_tools,
+            auto_allow_writes=settings.permissions.auto_allow_write_tools,
+            auto_allow_bash=settings.permissions.auto_allow_bash,
+            bash_patterns=settings.permissions.allowed_bash_commands,
+        )
         cost_tracker = CostTracker()
         plan_mode = PlanMode()
         if plan:
             plan_mode.activate()
 
         context_manager = ContextManager(
-            max_tokens=settings.max_context_tokens,
+            max_tokens=settings.provider.max_context_tokens,
             compact_threshold=settings.compact_threshold,
         )
 

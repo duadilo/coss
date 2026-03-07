@@ -37,30 +37,32 @@ class ProviderRegistry:
         *,
         api_key: str | None = None,
         base_url: str | None = None,
+        extra_params: dict[str, Any] | None = None,
     ) -> LLMProvider:
         """
         Parse a model string and return an instantiated provider.
         """
         provider_name, model_name, resolved_base_url = cls._parse(model_string, base_url)
+        ep = extra_params or {}
 
         if provider_name == "anthropic":
             from opencode.providers.anthropic import AnthropicProvider
 
             key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-            return AnthropicProvider(model=model_name, api_key=key)
+            return AnthropicProvider(model=model_name, api_key=key, extra_params=ep)
 
         elif provider_name == "google":
             from opencode.providers.google import GoogleProvider
 
             key = api_key or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
-            return GoogleProvider(model=model_name, api_key=key)
+            return GoogleProvider(model=model_name, api_key=key, extra_params=ep)
 
         elif provider_name == "ollama":
             from opencode.providers.openai_compatible import OpenAICompatibleProvider
 
             url = resolved_base_url or "http://localhost:11434/v1"
             return OpenAICompatibleProvider(
-                model=model_name, base_url=url, api_key="ollama"
+                model=model_name, base_url=url, api_key="ollama", extra_params=ep,
             )
 
         elif provider_name in ("openai", "openai-compatible"):
@@ -71,7 +73,7 @@ class ProviderRegistry:
                 "https://api.openai.com/v1" if provider_name == "openai"
                 else "http://localhost:8080/v1"
             )
-            return OpenAICompatibleProvider(model=model_name, base_url=url, api_key=key)
+            return OpenAICompatibleProvider(model=model_name, base_url=url, api_key=key, extra_params=ep)
 
         else:
             # Unknown provider prefix — treat as openai-compatible
@@ -79,7 +81,7 @@ class ProviderRegistry:
 
             key = api_key or os.environ.get("OPENCODE_API_KEY", "not-needed")
             url = resolved_base_url or os.environ.get("OPENCODE_BASE_URL", "http://localhost:8080/v1")
-            return OpenAICompatibleProvider(model=model_string, base_url=url, api_key=key)
+            return OpenAICompatibleProvider(model=model_string, base_url=url, api_key=key, extra_params=ep)
 
     @classmethod
     def _parse(

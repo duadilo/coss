@@ -20,9 +20,11 @@ class GoogleProvider(LLMProvider):
         self,
         model: str = "gemini-2.5-flash",
         api_key: str | None = None,
+        extra_params: dict[str, Any] | None = None,
     ) -> None:
         self.name = "google"
         self.model = model
+        self.extra_params = extra_params or {}
         self._client = genai.Client(api_key=api_key)
 
     def format_tools(self, tools: list[ToolDefinition]) -> list[types.Tool]:
@@ -84,11 +86,25 @@ class GoogleProvider(LLMProvider):
         """Stream a response from the Gemini API."""
         contents = self.format_messages(messages, system_prompt)
 
-        config = types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            temperature=temperature,
-            max_output_tokens=max_tokens,
-        )
+        # Apply extra params
+        if "temperature" in self.extra_params:
+            temperature = self.extra_params["temperature"]
+        if "max_tokens" in self.extra_params:
+            max_tokens = self.extra_params["max_tokens"]
+
+        config_kwargs: dict[str, Any] = {
+            "system_instruction": system_prompt,
+            "temperature": temperature,
+            "max_output_tokens": max_tokens,
+        }
+        if "top_p" in self.extra_params:
+            config_kwargs["top_p"] = self.extra_params["top_p"]
+        if "top_k" in self.extra_params:
+            config_kwargs["top_k"] = self.extra_params["top_k"]
+        if "presence_penalty" in self.extra_params:
+            config_kwargs["presence_penalty"] = self.extra_params["presence_penalty"]
+
+        config = types.GenerateContentConfig(**config_kwargs)
         if tools:
             config.tools = self.format_tools(tools)
 

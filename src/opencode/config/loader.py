@@ -90,6 +90,9 @@ class ConfigLoader:
         if temperature := os.environ.get("OPENCODE_TEMPERATURE"):
             provider["temperature"] = float(temperature)
 
+        if max_context := os.environ.get("OPENCODE_MAX_CONTEXT_TOKENS"):
+            provider["max_context_tokens"] = int(max_context)
+
         if provider:
             result["provider"] = provider
 

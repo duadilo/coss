@@ -59,6 +59,7 @@ class SlashCommandRegistry:
         self.register(SlashCommand("help", "Show available commands", self._cmd_help))
         self.register(SlashCommand("clear", "Clear conversation history", self._cmd_clear))
         self.register(SlashCommand("cost", "Show token usage", self._cmd_cost))
+        self.register(SlashCommand("usage", "Show context window usage", self._cmd_usage))
         self.register(SlashCommand("model", "Show/switch model (e.g. /model anthropic:claude-sonnet-4-20250514)", self._cmd_model))
         self.register(SlashCommand("config", "Show current configuration", self._cmd_config))
         self.register(SlashCommand("plan", "Toggle plan mode (read-only exploration)", self._cmd_plan))
@@ -101,6 +102,26 @@ class SlashCommandRegistry:
 
     def _cmd_cost(self, _args: str = "") -> None:
         self._console.print(f"[dim]{self._cost_tracker.summary()}[/dim]")
+
+    def _cmd_usage(self, _args: str = "") -> None:
+        used = self._conversation.token_estimate()
+        max_tokens = self._settings.provider.max_context_tokens if self._settings else 128_000
+        pct = used / max_tokens if max_tokens else 0
+        filled = int(pct * 30)
+        empty = 30 - filled
+
+        if pct < 0.6:
+            bar_color = "green"
+        elif pct < 0.85:
+            bar_color = "yellow"
+        else:
+            bar_color = "red"
+
+        bar = f"[{bar_color}]{'█' * filled}[/{bar_color}][dim]{'░' * empty}[/dim]"
+        self._console.print(
+            f"\nContext: {bar} [bold]{pct:.0%}[/bold]  "
+            f"[dim]~{used:,} / {max_tokens:,} tokens[/dim]\n"
+        )
 
     def _cmd_model(self, args: str = "") -> None:
         if not args.strip():
@@ -145,10 +166,13 @@ class SlashCommandRegistry:
         table.add_row("provider.api_key", "***" if s.provider.api_key else "(not set)")
         table.add_row("provider.max_tokens", str(s.provider.max_tokens))
         table.add_row("provider.temperature", str(s.provider.temperature))
+        if s.provider.extra_params:
+            for k, v in s.provider.extra_params.items():
+                table.add_row(f"provider.extra_params.{k}", str(v))
         table.add_row("permissions.auto_allow_read", str(s.permissions.auto_allow_read_tools))
         table.add_row("permissions.auto_allow_write", str(s.permissions.auto_allow_write_tools))
         table.add_row("permissions.auto_allow_bash", str(s.permissions.auto_allow_bash))
-        table.add_row("max_context_tokens", str(s.max_context_tokens))
+        table.add_row("provider.max_context_tokens", str(s.provider.max_context_tokens))
         if s.mcp_servers:
             table.add_row("mcp_servers", ", ".join(s.mcp_servers.keys()))
         if s.hooks:

@@ -12,7 +12,9 @@ class ProviderSettings(BaseModel):
     api_key: str | None = None
     base_url: str | None = None
     max_tokens: int = 4096
+    max_context_tokens: int = 128_000
     temperature: float = 0.0
+    extra_params: dict[str, float | int | str | bool] = Field(default_factory=dict)
 
 
 class PermissionSettings(BaseModel):
@@ -49,6 +51,5 @@ class Settings(BaseModel):
     permissions: PermissionSettings = Field(default_factory=PermissionSettings)
     mcp_servers: dict[str, MCPServerEntry] = Field(default_factory=dict)
     hooks: list[HookEntry] = Field(default_factory=list)
-    max_context_tokens: int = 128_000
     compact_threshold: float = 0.8
     system_prompt_extra: str = ""

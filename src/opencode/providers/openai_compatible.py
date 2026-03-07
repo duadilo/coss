@@ -31,9 +31,11 @@ class OpenAICompatibleProvider(LLMProvider):
         model: str = "default",
         base_url: str = "http://localhost:8080/v1",
         api_key: str = "not-needed",
+        extra_params: dict[str, Any] | None = None,
     ) -> None:
         self.name = "openai-compatible"
         self.model = model
+        self.extra_params = extra_params or {}
         self._client = AsyncOpenAI(base_url=base_url, api_key=api_key)
 
     def format_tools(self, tools: list[ToolDefinition]) -> list[dict[str, Any]]:
@@ -113,6 +115,18 @@ class OpenAICompatibleProvider(LLMProvider):
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+
+        # Merge extra params (can override temperature, add top_p, top_k, etc.)
+        if self.extra_params:
+            kwargs["extra_body"] = {
+                k: v for k, v in self.extra_params.items()
+                if k not in ("temperature", "max_tokens")
+            }
+            # temperature and max_tokens are first-class OpenAI params
+            if "temperature" in self.extra_params:
+                kwargs["temperature"] = self.extra_params["temperature"]
+            if "max_tokens" in self.extra_params:
+                kwargs["max_tokens"] = self.extra_params["max_tokens"]
 
         if tools:
             formatted_tools = self.format_tools(tools)

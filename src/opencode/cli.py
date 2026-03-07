@@ -27,6 +27,10 @@ from opencode import __version__
 )
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Enable verbose logging")
 @click.option("--debug", is_flag=True, default=False, help="Enable debug logging")
+@click.option(
+    "--param", multiple=True,
+    help="Extra provider params as key=value (e.g. --param top_p=0.95 --param top_k=20)",
+)
 @click.version_option(__version__, prog_name="opencode")
 def main(
     model: str | None,
@@ -36,6 +40,7 @@ def main(
     prompt: str | None,
     verbose: bool,
     debug: bool,
+    param: tuple[str, ...],
 ) -> None:
     """OpenCode - Agentic coding assistant in your terminal."""
     import logging
@@ -47,12 +52,30 @@ def main(
 
     from opencode.app import Application
 
+    # Parse --param key=value pairs
+    extra_params: dict[str, float | int | str | bool] = {}
+    for p in param:
+        if "=" not in p:
+            raise click.BadParameter(f"Expected key=value format, got: {p}", param_hint="--param")
+        key, value = p.split("=", 1)
+        # Try to parse as number or bool
+        try:
+            extra_params[key] = int(value)
+        except ValueError:
+            try:
+                extra_params[key] = float(value)
+            except ValueError:
+                if value.lower() in ("true", "false"):
+                    extra_params[key] = value.lower() == "true"
+                else:
+                    extra_params[key] = value
+
     # Check for piped stdin
     stdin_content: str | None = None
     if not sys.stdin.isatty():
         stdin_content = sys.stdin.read()
 
-    app = Application.create(model=model, base_url=base_url, api_key=api_key, plan=plan)
+    app = Application.create(model=model, base_url=base_url, api_key=api_key, plan=plan, extra_params=extra_params)
 
     if prompt or stdin_content:
         # Non-interactive mode

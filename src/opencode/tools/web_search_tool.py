@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 from typing import Any
 
@@ -16,7 +15,7 @@ class WebSearchTool(Tool):
     Web search using a configurable search API.
 
     Supported backends (set via OPENCODE_SEARCH_API env var):
-    - "tavily"   : Tavily Search API (default, needs TAVILY_API_KEY)
+    - "ddgs"     : DuckDuckGo Search (default, no API key needed)
     - "searxng"  : SearXNG instance (needs SEARXNG_URL)
     - "brave"    : Brave Search API (needs BRAVE_API_KEY)
 
@@ -25,7 +24,7 @@ class WebSearchTool(Tool):
     """
 
     def __init__(self) -> None:
-        self._backend = os.environ.get("OPENCODE_SEARCH_API", "tavily").lower()
+        self._backend = os.environ.get("OPENCODE_SEARCH_API", "ddgs").lower()
 
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
@@ -50,15 +49,15 @@ class WebSearchTool(Tool):
                 ),
             ],
             is_read_only=True,
-            requires_permission=False,
+            requires_permission=True,
         )
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         query: str = kwargs["query"]
         num_results: int = kwargs.get("num_results", 5)
 
-        if self._backend == "tavily":
-            return await self._search_tavily(query, num_results)
+        if self._backend == "ddgs":
+            return await self._search_ddgs(query, num_results)
         elif self._backend == "searxng":
             return await self._search_searxng(query, num_results)
         elif self._backend == "brave":
@@ -67,48 +66,29 @@ class WebSearchTool(Tool):
             return ToolResult(
                 content=(
                     f"Unknown search backend: {self._backend}. "
-                    "Set OPENCODE_SEARCH_API to 'tavily', 'searxng', or 'brave'."
+                    "Set OPENCODE_SEARCH_API to 'ddgs', 'searxng', or 'brave'."
                 ),
                 is_error=True,
             )
 
-    async def _search_tavily(self, query: str, num_results: int) -> ToolResult:
-        api_key = os.environ.get("TAVILY_API_KEY")
-        if not api_key:
-            return ToolResult(
-                content="TAVILY_API_KEY not set. Get one at https://tavily.com",
-                is_error=True,
-            )
-
+    async def _search_ddgs(self, query: str, num_results: int) -> ToolResult:
         try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                response = await client.post(
-                    "https://api.tavily.com/search",
-                    json={
-                        "api_key": api_key,
-                        "query": query,
-                        "max_results": num_results,
-                        "include_answer": True,
-                    },
-                )
-                response.raise_for_status()
-                data = response.json()
+            from ddgs import DDGS
+
+            data = DDGS().text(query, max_results=num_results)
 
             results: list[str] = []
-            if answer := data.get("answer"):
-                results.append(f"**Answer:** {answer}\n")
-
-            for r in data.get("results", []):
+            for r in data:
                 title = r.get("title", "")
-                url = r.get("url", "")
-                snippet = r.get("content", "")[:300]
+                url = r.get("href", "")
+                snippet = r.get("body", "")[:300]
                 results.append(f"### [{title}]({url})\n{snippet}\n")
 
             return ToolResult(
                 content="\n".join(results) if results else "No results found."
             )
         except Exception as e:
-            return ToolResult(content=f"Tavily search error: {e}", is_error=True)
+            return ToolResult(content=f"DuckDuckGo search error: {e}", is_error=True)
 
     async def _search_searxng(self, query: str, num_results: int) -> ToolResult:
         base_url = os.environ.get("SEARXNG_URL")

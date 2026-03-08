@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from opencode.memory.store import MemoryStore
@@ -57,7 +58,9 @@ class SystemPromptBuilder:
             parts.append("## Available Tools\n" + "\n".join(tool_lines))
 
         # Environment
-        parts.append(f"\nWorking directory: {os.getcwd()}")
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        parts.append(f"\nCurrent date and time: {now}")
+        parts.append(f"Working directory: {os.getcwd()}")
 
         # Global memory
         global_mem = memory_store.read_global()

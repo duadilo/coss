@@ -33,6 +33,7 @@ class StreamRenderer:
                     console=self._console,
                     refresh_per_second=8,
                     auto_refresh=True,
+                    vertical_overflow="visible",
                 )
                 self._live.start()
             else:

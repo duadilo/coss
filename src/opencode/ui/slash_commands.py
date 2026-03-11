@@ -71,11 +71,11 @@ class SlashCommandRegistry:
     def register(self, cmd: SlashCommand) -> None:
         self._commands[cmd.name] = cmd
 
-    async def dispatch(self, raw_input: str) -> bool:
-        """Dispatch a slash command. Returns True if handled."""
+    async def dispatch(self, raw_input: str) -> str | None:
+        """Dispatch a slash command. Returns a string to send to the agent, or None."""
         parts = raw_input.strip().lstrip("/").split(maxsplit=1)
         if not parts:
-            return False
+            return None
 
         name = parts[0].lower()
         args = parts[1] if len(parts) > 1 else ""
@@ -83,12 +83,12 @@ class SlashCommandRegistry:
         cmd = self._commands.get(name)
         if cmd is None:
             self._console.print(f"[red]Unknown command: /{name}[/red]. Type /help for help.")
-            return True
+            return None
 
         result = cmd.handler(args)
         if result is not None and hasattr(result, "__await__"):
-            await result
-        return True
+            result = await result
+        return result if isinstance(result, str) else None
 
     def _cmd_help(self, _args: str = "") -> None:
         self._console.print("\n[bold]Available commands:[/bold]")

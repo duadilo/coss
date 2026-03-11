@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
+import signal
 from pathlib import Path
 
 from prompt_toolkit import PromptSession
@@ -139,6 +141,35 @@ class REPL:
         # "s", "skip", or anything else → deny this call, agent continues
         return False
 
+    async def _handle_interrupt(self) -> None:
+        """Handle Ctrl+C during agent execution — offer btw injection."""
+        try:
+            btw = await self._session.prompt_async(
+                HTML(
+                    "\n<b>Paused.</b> Type a message to inject "
+                    "(or Enter to abort): "
+                ),
+            )
+        except (EOFError, KeyboardInterrupt):
+            self._console.print("[dim]Aborted.[/dim]")
+            return
+
+        btw = btw.strip()
+        if btw:
+            self._console.print()
+            await self._agent.run(
+                f"[Side instruction from the user]: {btw}\n"
+                "Acknowledge briefly and continue what you were doing.",
+                on_stream_chunk=self._renderer.on_chunk,
+                on_tool_start=self._renderer.on_tool_start,
+                on_tool_end=self._renderer.on_tool_end,
+                on_permission_request=self._handle_permission_request,
+            )
+            self._renderer.finalize()
+            self._console.print()
+        else:
+            self._console.print("[dim]Interrupted. Type /exit to quit.[/dim]")
+
     async def run(self) -> None:
         """Main REPL loop."""
         self._print_welcome()
@@ -154,18 +185,32 @@ class REPL:
 
                 # Handle slash commands
                 if user_input.strip().startswith("/"):
-                    await self._slash.dispatch(user_input.strip())
-                    continue
+                    agent_message = await self._slash.dispatch(user_input.strip())
+                    if agent_message is None:
+                        continue
+                    user_input = agent_message
 
-                # Run agent loop
+                # Run agent loop — wrap in a task so we can cancel on Ctrl+C
                 self._console.print()
-                await self._agent.run(
+                task = asyncio.create_task(self._agent.run(
                     user_input,
                     on_stream_chunk=self._renderer.on_chunk,
                     on_tool_start=self._renderer.on_tool_start,
                     on_tool_end=self._renderer.on_tool_end,
                     on_permission_request=self._handle_permission_request,
-                )
+                ))
+
+                loop = asyncio.get_running_loop()
+                loop.add_signal_handler(signal.SIGINT, task.cancel)
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    self._renderer.finalize()
+                    await self._handle_interrupt()
+                    continue
+                finally:
+                    loop.remove_signal_handler(signal.SIGINT)
+
                 self._renderer.finalize()
                 self._console.print()
 
@@ -173,8 +218,8 @@ class REPL:
                 self._renderer.finalize()
                 self._console.print("\n[dim]Aborted.[/dim]")
             except KeyboardInterrupt:
-                self._renderer.finalize()
-                self._console.print("\n[dim]Interrupted. Type /exit to quit.[/dim]")
+                self._console.print()
+                continue
             except EOFError:
                 break
             except SystemExit:

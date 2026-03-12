@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from opencode.tools.base import Tool, ToolDefinition, ToolParameter, ToolResult
+from opencode.tools.base import Tool, ToolDefinition, ToolParameter, ToolResult, fence_untrusted
 
 
 class WebSearchTool(Tool):
@@ -18,13 +18,14 @@ class WebSearchTool(Tool):
     - "ddgs"     : DuckDuckGo Search (default, no API key needed)
     - "searxng"  : SearXNG instance (needs SEARXNG_URL)
     - "brave"    : Brave Search API (needs BRAVE_API_KEY)
+    - "google"   : Google Custom Search (needs GOOGLE_CSE_API_KEY + GOOGLE_CSE_ID)
 
     Falls back to a message suggesting the user configure a search API
     if no backend is available.
     """
 
     def __init__(self) -> None:
-        self._backend = os.environ.get("OPENCODE_SEARCH_API", "ddgs").lower()
+        self._backend = os.environ.get("OPENCODE_SEARCH_API", "searxng").lower()
 
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
@@ -62,11 +63,13 @@ class WebSearchTool(Tool):
             return await self._search_searxng(query, num_results)
         elif self._backend == "brave":
             return await self._search_brave(query, num_results)
+        elif self._backend == "google":
+            return await self._search_google(query, num_results)
         else:
             return ToolResult(
                 content=(
                     f"Unknown search backend: {self._backend}. "
-                    "Set OPENCODE_SEARCH_API to 'ddgs', 'searxng', or 'brave'."
+                    "Set OPENCODE_SEARCH_API to 'ddgs', 'searxng', 'brave', or 'google'."
                 ),
                 is_error=True,
             )
@@ -84,14 +87,15 @@ class WebSearchTool(Tool):
                 snippet = r.get("body", "")[:300]
                 results.append(f"### [{title}]({url})\n{snippet}\n")
 
+            body = "\n".join(results) if results else "No results found."
             return ToolResult(
-                content="\n".join(results) if results else "No results found."
+                content=fence_untrusted(body, f"DuckDuckGo search: {query}")
             )
         except Exception as e:
             return ToolResult(content=f"DuckDuckGo search error: {e}", is_error=True)
 
     async def _search_searxng(self, query: str, num_results: int) -> ToolResult:
-        base_url = os.environ.get("SEARXNG_URL")
+        base_url = os.environ.get("SEARXNG_URL", "http://localhost:8800")
         if not base_url:
             return ToolResult(
                 content="SEARXNG_URL not set. Set it to your SearXNG instance URL.",
@@ -118,8 +122,9 @@ class WebSearchTool(Tool):
                 snippet = r.get("content", "")[:300]
                 results.append(f"### [{title}]({url})\n{snippet}\n")
 
+            body = "\n".join(results) if results else "No results found."
             return ToolResult(
-                content="\n".join(results) if results else "No results found."
+                content=fence_untrusted(body, f"SearXNG search: {query}")
             )
         except Exception as e:
             return ToolResult(content=f"SearXNG search error: {e}", is_error=True)
@@ -152,8 +157,50 @@ class WebSearchTool(Tool):
                 snippet = r.get("description", "")[:300]
                 results.append(f"### [{title}]({url})\n{snippet}\n")
 
+            body = "\n".join(results) if results else "No results found."
             return ToolResult(
-                content="\n".join(results) if results else "No results found."
+                content=fence_untrusted(body, f"Brave search: {query}")
             )
         except Exception as e:
             return ToolResult(content=f"Brave search error: {e}", is_error=True)
+
+    async def _search_google(self, query: str, num_results: int) -> ToolResult:
+        api_key = os.environ.get("GOOGLE_CSE_API_KEY")
+        cse_id = os.environ.get("GOOGLE_CSE_ID")
+        if not api_key or not cse_id:
+            return ToolResult(
+                content=(
+                    "GOOGLE_CSE_API_KEY and GOOGLE_CSE_ID must both be set. "
+                    "Create a Custom Search Engine at https://programmablesearchengine.google.com/ "
+                    "and get an API key at https://console.cloud.google.com/apis/credentials"
+                ),
+                is_error=True,
+            )
+
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.get(
+                    "https://www.googleapis.com/customsearch/v1",
+                    params={
+                        "key": api_key,
+                        "cx": cse_id,
+                        "q": query,
+                        "num": min(num_results, 10),
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+
+            results: list[str] = []
+            for r in data.get("items", [])[:num_results]:
+                title = r.get("title", "")
+                url = r.get("link", "")
+                snippet = r.get("snippet", "")[:300]
+                results.append(f"### [{title}]({url})\n{snippet}\n")
+
+            body = "\n".join(results) if results else "No results found."
+            return ToolResult(
+                content=fence_untrusted(body, f"Google search: {query}")
+            )
+        except Exception as e:
+            return ToolResult(content=f"Google search error: {e}", is_error=True)

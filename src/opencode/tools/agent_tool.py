@@ -9,7 +9,7 @@ from opencode.core.cost import CostTracker
 from opencode.core.message import Message, Role
 from opencode.core.permissions import PermissionManager
 from opencode.providers.base import LLMProvider
-from opencode.tools.base import Tool, ToolDefinition, ToolParameter, ToolResult
+from opencode.tools.base import Tool, ToolDefinition, ToolParameter, ToolResult, fence_untrusted
 from opencode.tools.registry import ToolRegistry
 
 
@@ -25,12 +25,14 @@ class AgentTool(Tool):
         provider: LLMProvider,
         tool_registry: ToolRegistry,
         cost_tracker: CostTracker,
+        permission_manager: PermissionManager,
         system_prompt: str,
         max_turns: int = 20,
     ) -> None:
         self._provider = provider
         self._tool_registry = tool_registry
         self._cost_tracker = cost_tracker
+        self._permission_manager = permission_manager
         self._system_prompt = system_prompt
         self._max_turns = max_turns
 
@@ -77,7 +79,7 @@ class AgentTool(Tool):
         sub_agent = AgentLoop(
             provider=self._provider,
             tool_registry=sub_registry,
-            permission_manager=PermissionManager(),  # auto-allow read-only
+            permission_manager=self._permission_manager,  # respect parent permissions
             cost_tracker=self._cost_tracker,  # shared cost tracker
             conversation=sub_conversation,
             max_iterations=self._max_turns,
@@ -85,6 +87,7 @@ class AgentTool(Tool):
 
         try:
             result_msg = await sub_agent.run(prompt)
-            return ToolResult(content=result_msg.content or "(no response from sub-agent)")
+            content = result_msg.content or "(no response from sub-agent)"
+            return ToolResult(content=fence_untrusted(content, "sub-agent"))
         except Exception as e:
             return ToolResult(content=f"Sub-agent error: {e}", is_error=True)

@@ -77,8 +77,17 @@ export OPENCODE_BASE_URL=http://localhost:8080/v1
 export OPENCODE_API_KEY=not-needed
 
 # Search backends (for web_search tool)
-export OPENCODE_SEARCH_API=tavily   # or "searxng" or "brave"
-export TAVILY_API_KEY=tvly-...
+export OPENCODE_SEARCH_API=ddgs   # or "searxng", "brave", or "google"
+
+# SearXNG (self-hosted)
+export SEARXNG_URL=http://localhost:8800
+
+# Brave Search
+export BRAVE_API_KEY=BSA...
+
+# Google Custom Search
+export GOOGLE_CSE_API_KEY=AIza...
+export GOOGLE_CSE_ID=a1b2c3...
 ```
 
 ### Config Files
@@ -96,6 +105,7 @@ Example `~/.opencode/config.yaml`:
 ```yaml
 provider:
   model: ollama:llama3.1
+  base_url: http://localhost:11434/v1
   max_tokens: 4096
   temperature: 0.0
 
@@ -200,7 +210,7 @@ src/opencode/
 │   ├── grep_tool.py            # Content search (ripgrep/regex)
 │   ├── agent_tool.py           # Sub-agent spawner
 │   ├── web_fetch_tool.py       # Fetch web pages as markdown
-│   └── web_search_tool.py      # Web search (Tavily/SearXNG/Brave)
+│   └── web_search_tool.py      # Web search (DuckDuckGo/SearXNG/Brave/Google)
 ├── mcp/
 │   ├── client.py               # MCP server connection manager
 │   ├── bridge.py               # Wraps MCP tools as native tools

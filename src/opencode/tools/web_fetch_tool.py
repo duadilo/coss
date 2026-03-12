@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from opencode.tools.base import Tool, ToolDefinition, ToolParameter, ToolResult
+from opencode.tools.base import Tool, ToolDefinition, ToolParameter, ToolResult, fence_untrusted
 
 
 def _html_to_markdown(html: str) -> str:
@@ -102,7 +102,7 @@ class WebFetchTool(Tool):
                 ),
             ],
             is_read_only=True,
-            requires_permission=False,
+            requires_permission=True,
         )
 
     async def execute(self, **kwargs: Any) -> ToolResult:
@@ -120,7 +120,15 @@ class WebFetchTool(Tool):
             ) as client:
                 response = await client.get(
                     url,
-                    headers={"User-Agent": "OpenCode/0.1 (agentic coding CLI)"},
+                    headers={
+                        "User-Agent": (
+                            "Mozilla/5.0 "
+                            "(Macintosh; Intel Mac OS X 10_15_7) "
+                            "AppleWebKit/605.1.15 "
+                            "(KHTML, like Gecko) "
+                            "Version/17.10 Safari/605.1.1"
+                        )
+                    },
                 )
                 response.raise_for_status()
 
@@ -135,7 +143,7 @@ class WebFetchTool(Tool):
                 if len(text) > 50_000:
                     text = text[:50_000] + "\n\n... (content truncated at 50,000 chars)"
 
-                return ToolResult(content=text)
+                return ToolResult(content=fence_untrusted(text, url))
 
         except httpx.HTTPStatusError as e:
             return ToolResult(

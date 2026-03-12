@@ -150,6 +150,7 @@ class Application:
             provider=provider,
             tool_registry=tool_registry,
             cost_tracker=cost_tracker,
+            permission_manager=permission_manager,
             system_prompt=system_prompt,
         ))
 
